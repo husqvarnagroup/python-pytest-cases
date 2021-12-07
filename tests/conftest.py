@@ -39,6 +39,14 @@ def pytest_ignore_collect(path, config):
         ):
             return True
 
+    if sys.version_info < (3, 6):
+        ignore_globs = ['**/*py36*.py']
+        if any(
+                fnmatch.fnmatch(six.text_type(path), six.text_type(glob))
+                for glob in ignore_globs
+        ):
+            return True
+
 
 # @pytest.hookimpl(trylast=True)
 # def pytest_configure(config):
