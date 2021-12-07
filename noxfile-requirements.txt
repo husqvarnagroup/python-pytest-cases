@@ -1,5 +1,5 @@
 nox
 toml
-makefun
+git+https://github.com/broglep-work/python-makefun.git@support-asyncgen#egg=makefun
 setuptools_scm  # used in 'release'
 keyring         # used in 'release'
