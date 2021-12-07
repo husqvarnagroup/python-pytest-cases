@@ -5,11 +5,23 @@
 from __future__ import division
 
 from inspect import isgeneratorfunction
+
+try:
+    from inspect import iscoroutinefunction
+except ImportError:
+    def iscoroutinefunction(f):
+        return False
+try:
+    from inspect import isasyncgenfunction
+except ImportError:
+    def isasyncgenfunction(f):
+        return False
 from warnings import warn
 
 from makefun import with_signature, add_signature_parameters, wraps
 
 import pytest
+import sys
 
 try:  # python 3.3+
     from inspect import signature, Parameter
@@ -224,17 +236,7 @@ def ignore_unused(fixture_func):
     else:
         new_sig = old_sig
 
-    if not isgeneratorfunction(fixture_func):
-        # normal function with return statement
-        @wraps(fixture_func, new_sig=new_sig)
-        def wrapped_fixture_func(*args, **kwargs):
-            request = kwargs['request'] if func_needs_request else kwargs.pop('request')
-            if is_used_request(request):
-                return fixture_func(*args, **kwargs)
-            else:
-                return NOT_USED
-
-    else:
+    if isgeneratorfunction(fixture_func):
         # generator function (with a yield statement)
         @wraps(fixture_func, new_sig=new_sig)
         def wrapped_fixture_func(*args, **kwargs):
@@ -244,6 +246,24 @@ def ignore_unused(fixture_func):
                     yield res
             else:
                 yield NOT_USED
+    elif isasyncgenfunction(fixture_func) and sys.version_info >= (3, 6):
+        from pytest_cases._fixture_core_p36 import ignore_unused_generate_asyncgen_wrapped_fixture_func
+        wrapped_fixture_func = ignore_unused_generate_asyncgen_wrapped_fixture_func(fixture_func, new_sig,
+                                                                                    func_needs_request)
+
+    elif iscoroutinefunction(fixture_func) and sys.version_info >= (3, 5):
+        from pytest_cases._fixture_core_p35 import ignore_unused_generate_async_wrapped_fixture_func
+        wrapped_fixture_func = ignore_unused_generate_async_wrapped_fixture_func(fixture_func, new_sig,
+                                                                                 func_needs_request)
+    else:
+        # normal function with return statement
+        @wraps(fixture_func, new_sig=new_sig)
+        def wrapped_fixture_func(*args, **kwargs):
+            request = kwargs['request'] if func_needs_request else kwargs.pop('request')
+            if is_used_request(request):
+                return fixture_func(*args, **kwargs)
+            else:
+                return NOT_USED
 
     return wrapped_fixture_func
 
