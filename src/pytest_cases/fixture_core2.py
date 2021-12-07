@@ -5,6 +5,18 @@
 from __future__ import division
 
 from inspect import isgeneratorfunction
+
+try:
+    from inspect import iscoroutinefunction
+except ImportError:
+    def iscoroutinefunction(f):
+        return False
+try:
+    from inspect import isasyncgenfunction
+except ImportError:
+    def isasyncgenfunction(f):
+        return False
+
 from itertools import product
 from warnings import warn
 
@@ -12,6 +24,7 @@ from decopatch import function_decorator, DECORATED
 from makefun import with_signature, add_signature_parameters, remove_signature_parameters, wraps
 
 import pytest
+import sys
 
 try:  # python 3.3+
     from inspect import signature, Parameter
@@ -528,17 +541,7 @@ def _decorate_fixture_plus(fixture_func,
         return _args, _kwargs
 
     # --Finally create the fixture function, a wrapper of user-provided fixture with the new signature
-    if not isgeneratorfunction(fixture_func):
-        # normal function with return statement
-        @wraps(fixture_func, new_sig=new_sig)
-        def wrapped_fixture_func(*_args, **_kwargs):
-            if not is_used_request(_kwargs['request']):
-                return NOT_USED
-            else:
-                _args, _kwargs = _map_arguments(*_args, **_kwargs)
-                return fixture_func(*_args, **_kwargs)
-
-    else:
+    if isgeneratorfunction(fixture_func):
         # generator function (with a yield statement)
         @wraps(fixture_func, new_sig=new_sig)
         def wrapped_fixture_func(*_args, **_kwargs):
@@ -548,6 +551,23 @@ def _decorate_fixture_plus(fixture_func,
                 _args, _kwargs = _map_arguments(*_args, **_kwargs)
                 for res in fixture_func(*_args, **_kwargs):
                     yield res
+    elif isasyncgenfunction(fixture_func) and sys.version_info >= (3, 6):
+        from pytest_cases._fixture_core_p36 import decorate_fixture_plus_asyncgen_wrapped_fixture_func
+        wrapped_fixture_func = decorate_fixture_plus_asyncgen_wrapped_fixture_func(fixture_func, new_sig,
+                                                                                   _map_arguments)
+    elif iscoroutinefunction(fixture_func) and sys.version_info >= (3, 5):
+        from pytest_cases._fixture_core_p36 import decorate_fixture_plus_async_wrapped_fixture_func
+        wrapped_fixture_func = decorate_fixture_plus_async_wrapped_fixture_func(fixture_func, new_sig,
+                                                                                _map_arguments)
+    else:
+        # normal function with return statement
+        @wraps(fixture_func, new_sig=new_sig)
+        def wrapped_fixture_func(*_args, **_kwargs):
+            if not is_used_request(_kwargs['request']):
+                return NOT_USED
+            else:
+                _args, _kwargs = _map_arguments(*_args, **_kwargs)
+                return fixture_func(*_args, **_kwargs)
 
     # transform the created wrapper into a fixture
     _make_fix = pytest_fixture(scope=scope, params=final_values, autouse=autouse, hook=hook, ids=final_ids, **kwargs)
